@@ -1,5 +1,8 @@
+using System.Net.Mime;
+using System.Text.Json;
 using Catalog.Repositories;
 using Catalog.Settings;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Mvc;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization;
@@ -10,12 +13,13 @@ var builder = WebApplication.CreateBuilder(args);
 
 BsonSerializer.RegisterSerializer(new GuidSerializer(BsonType.String));
 BsonSerializer.RegisterSerializer(new DateTimeOffsetSerializer(BsonType.String));
+var mongoDbSettings = builder.Configuration.GetSection(nameof(MongoDbSettings)).Get<MongoDbSettings>();
 
 
 builder.Services.AddSingleton<IMongoClient>(serviceProvider => 
 {
-    var settings = builder.Configuration.GetSection(nameof(MongoDbSettings)).Get<MongoDbSettings>();
-    return new MongoClient(settings.ConnectionString);
+    
+    return new MongoClient(mongoDbSettings.ConnectionString);
 });
 
 builder.Services.AddControllers(
@@ -50,7 +54,43 @@ builder.Services.AddControllers(
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+builder.Services.AddHealthChecks()
+.AddMongoDb(
+    mongoDbSettings.ConnectionString, 
+    name: "mongodb", 
+    timeout: TimeSpan.FromSeconds(3),
+    tags: new[]{"ready"}
+    );
+
 var app = builder.Build();
+
+/** database connection state */
+app.MapHealthChecks("/health/ready", new HealthCheckOptions{
+    Predicate = (check) => check.Tags.Contains("ready"),
+    ResponseWriter = async(context, report) =>
+    {
+        var result = JsonSerializer.Serialize(
+            new{
+                status = report.Status.ToString(),
+                checks = report.Entries.Select(entry => new {
+                    name = entry.Key,
+                    status = entry.Value.Status.ToString(),
+                    excecption = entry.Value.Exception != null ?  entry.Value.Exception.Message : "none",
+                    duration = entry.Value.Duration.ToString()
+                })
+            }
+        );
+
+        context.Response.ContentType = MediaTypeNames.Application.Json;
+        await context.Response.WriteAsync(result);
+    } 
+});
+
+/** Services are up and running */
+app.MapHealthChecks("/health/live", new HealthCheckOptions{
+    Predicate = (_) => false
+});
+
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
