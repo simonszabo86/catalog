@@ -23,6 +23,12 @@ In dev mode app end points are available on:
 Build a docker image (with v1 tag from the root content):
 `docker build -t catalog:v1 .`
 
+Build for docker image for hub with version v2:
+`docker build -t sszabo86/catalog:v2 .`
+
+Push built imageto docker hub:
+`docker push sszabo86/catalog:v2`
+
 Create network:
 `docker network create net5tutorial`
 
